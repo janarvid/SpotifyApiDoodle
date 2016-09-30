@@ -6,8 +6,8 @@
 
   <properties>
     <kotlin.version>1.0.4</kotlin.version>
+    <main.class>org.veggeberg.spotify.SpotifyApiDoodle</main.class>
   </properties>
-
 
   <dependencies>
   <dependency>
@@ -48,6 +48,28 @@
             <goals>
               <goal>test-compile</goal>
             </goals>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-assembly-plugin</artifactId>
+        <version>2.6</version>
+        <executions>
+          <execution>
+            <id>make-assembly</id>
+            <phase>package</phase>
+            <goals> <goal>single</goal> </goals>
+            <configuration>
+              <archive>
+                <manifest>
+                  <mainClass>${main.class}</mainClass>
+                </manifest>
+              </archive>
+              <descriptorRefs>
+                <descriptorRef>jar-with-dependencies</descriptorRef>
+              </descriptorRefs>
+            </configuration>
           </execution>
         </executions>
       </plugin>
