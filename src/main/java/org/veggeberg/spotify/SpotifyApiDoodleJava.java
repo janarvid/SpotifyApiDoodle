@@ -10,7 +10,7 @@ import com.wrapper.spotify.models.*;
 import java.util.ArrayList;
 import java.util.List;
 
-public class SpotifyApiDoodle {
+public class SpotifyApiDoodleJava {
 	static final String clientID = "1dda9d7c4eb34b1a9aef869a99ef8d37";
 	static final String clientSecret = "e89b8a20cf1a41a0a5eadaf9213b33e6";
 	// Create an API instance. The default instance connects to https://api.spotify.com/.
