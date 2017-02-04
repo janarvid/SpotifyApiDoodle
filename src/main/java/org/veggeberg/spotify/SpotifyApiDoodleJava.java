@@ -1,5 +1,11 @@
 package org.veggeberg.spotify;
 
+import org.mapdb.DB;
+import org.mapdb.DBMaker;
+
+import com.tinkerpop.blueprints.Direction;
+import com.tinkerpop.blueprints.Vertex;
+import com.tinkerpop.blueprints.impls.orient.OrientGraph;
 import com.wrapper.spotify.Api;
 import com.wrapper.spotify.methods.AlbumRequest;
 import com.wrapper.spotify.methods.AlbumsForArtistRequest;
@@ -7,8 +13,15 @@ import com.wrapper.spotify.methods.AlbumsRequest;
 import com.wrapper.spotify.methods.ArtistSearchRequest;
 import com.wrapper.spotify.models.*;
 
+import java.io.File;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
+
+import org.veggeberg.jmtools.domain.TopProgAlbum;
+import org.veggeberg.jmtools.rym.TopRymReader;
 
 public class SpotifyApiDoodleJava {
 	static final String clientID = "1dda9d7c4eb34b1a9aef869a99ef8d37";
@@ -59,14 +72,22 @@ public class SpotifyApiDoodleJava {
 		   System.out.println("Found " + albums.size() + " albums.");
 		   for (SimpleAlbum album : albums) {
 			   //String year = album.get
-		     System.out.println(album.getName() + " " + album.getAlbumType());
+		     //System.out.println(album.getName() + " " + album.getAlbumType());
 		     ids.add(album.getId());
 		     //findTracks(album);
 		   }
 		   System.out.println("ids = " + ids);
 		   final AlbumsRequest albumRequest= api.getAlbums(ids).build();
 		   for (Album album : albumRequest.get()) {
-			   System.out.println("  " + album.getName() + " " + album.getAlbumType() + " " + album.getReleaseDate());
+			   System.out.println("  " + album.getName() + " " + album.getAlbumType() + " " + album.getReleaseDate() + 
+					   " " + album.getGenres());
+			   /*
+			   Page<SimpleTrack> tracks = album.getTracks();
+			   for (SimpleTrack track: tracks.getItems()) {
+				   System.out.println("    " + track.getTrackNumber() + " " + track.getName() + 
+						   " " + track.getDuration());
+			   }
+			   */
 		   }
 
 		} catch (Exception e) {
@@ -74,7 +95,8 @@ public class SpotifyApiDoodleJava {
 		}
 	}
 	
-	private static void searchArtist(String... artistNames) {
+	private static Artist searchArtist(String... artistNames) {
+		Artist ret = null;
 		for (String artistName : artistNames) {
 		final ArtistSearchRequest request = api.searchArtists(artistName)
 				//.market("NO")
@@ -92,6 +114,7 @@ public class SpotifyApiDoodleJava {
 			   System.out.println(artist.getName() + "  genres="+artist.getGenres());
 			   searchAlbums(artist);
 			   i++;
+			   ret = artist;
 			   if (i > 0) break;
 		   }
 		   
@@ -100,14 +123,98 @@ public class SpotifyApiDoodleJava {
 		   e.printStackTrace();
 		}
 		}
+		return ret;
+	}
+	
+	static final String USER_CACHE_DIR = System.getProperty("user.home") + "/.jmtools/cache";
+	private static List<TopProgAlbum> rymAlbums;
+	private static List<TopProgAlbum> getRymAlbums() {
+		if (rymAlbums == null) {
+			Set<TopProgAlbum> set = db.getHashSet("rymTopAlbumsCache");
+			if (set.size() == 0) {
+				TopRymReader reader = new TopRymReader();
+				List<TopProgAlbum> albums = reader.getAlbums();
+				set.addAll(albums);
+			}
+			db.commit();
+			rymAlbums = new ArrayList<TopProgAlbum>();
+			rymAlbums.addAll(set);
+			rymAlbums.sort(new RymComparator());
+		}
+		return rymAlbums;
+	}
+	
+	static class RymComparator implements Comparator<TopProgAlbum> {
+		public int compare(TopProgAlbum arg0, TopProgAlbum arg1) {
+			return (arg0.getQwr() < arg1.getQwr()) ? 1 : -1;
+		}
+	}
+	
+	static DB db;
+	static void init() {
+		final File topAlbumsCacheFile = 
+				new File(USER_CACHE_DIR + "/rymTopAlbumsCache");
+		 db = DBMaker.newFileDB(topAlbumsCacheFile)
+		 .closeOnJvmShutdown()
+		 .make();
+    }
+	
+	private static OrientGraph graph;
+	
+	private static void dumpGraph() {
+		for (Vertex vertex : graph.getVertices()) {
+			System.out.println(vertex);
+			for (Vertex v : vertex.getVertices(Direction.BOTH, "lives")) {
+				System.out.println("  " + v);
+			}
+			for (String key : vertex.getPropertyKeys()) {
+				System.out.println("    " + key + " = " + vertex.getProperty(key));
+			}
+		}
+	}
+	
+	private static void upsertArtist(Artist artist) {
+		Vertex v = graph.addVertex("class:SpotifyArtist");
+//		v.setProperty("externalUrls", artist.getExternalUrls().getExternalUrls());
+		v.setProperty("genres", artist.getGenres());
+//		v.setProperty("followers", artist.getFollowers().getTotal());
+		v.setProperty("href", artist.getHref());
+		v.setProperty("artistId", artist.getId());
+//		v.setProperty("images", artist.getImages());
+		v.setProperty("name", artist.getName());
+		v.setProperty("popularity", artist.getPopularity());
+		v.setProperty("type", artist.getType().toString());
+		v.setProperty("uri", artist.getUri());
 	}
 
 	public static void main(String[] args) {
 //		synchronous();
+		init();
+		graph = new OrientGraph("memory:testdb");
+//		TopRymReader reader = new TopRymReader();
+//		List<TopProgAlbum> albums = reader.getAlbums();
+		List<TopProgAlbum> albums = getRymAlbums();
+		Set<String> artists = new LinkedHashSet<String>(); 
+		for (TopProgAlbum album : albums.subList(0, 1)) {
+			System.out.println(album);
+			artists.add(album.getArtist());
+		}
+		for (String ra : artists) {
+			System.out.println(ra);
+			Artist artist = searchArtist(ra);
+			upsertArtist(artist);
+			
+		}
+		dumpGraph();
+		graph.shutdown();
+		System.exit(0);
 		searchArtist(
-				"Jethro Tull",
-				"Genesis",
-				"Big Big Train");
+//				"Big Big Train",
+				"Chevelle"
+//				"Genesis",
+//				"IQ"
+//				"Jethro Tull"
+				);
 //		searchAlbums();
 	}
 

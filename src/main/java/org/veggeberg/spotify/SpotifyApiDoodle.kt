@@ -8,6 +8,7 @@ import com.wrapper.spotify.methods.ArtistSearchRequest
 import com.wrapper.spotify.models.*
 
 import java.util.ArrayList
+import kotlin.comparisons.compareBy
 
 object SpotifyApiDoodle {
     internal val clientID = "1dda9d7c4eb34b1a9aef869a99ef8d37"
@@ -42,38 +43,6 @@ object SpotifyApiDoodle {
 
     }
 
-    //	public static void findTracks(SimpleAlbum album) {
-    //		for (SimpleTrack track : album.get.getItems()) {
-    //			System.out.println(track.getName());
-    //		}
-    //	}
-
-    private fun searchAlbums(artist: Artist) {
-        val request = api.getAlbumsForArtist(artist.id).limit(20).build()
-
-        try {
-            val albumSearchResult = request.get()
-
-            val ids = ArrayList<String>()
-            val albums = albumSearchResult.items
-            println("Found " + albums.size + " albums.")
-            for (album in albums) {
-                //String year = album.get
-                println(album.name + " " + album.albumType)
-                ids.add(album.id)
-                //findTracks(album);
-            }
-            println("ids = " + ids)
-            val albumRequest = api.getAlbums(ids).build()
-            for (album in albumRequest.get()) {
-                println("  " + album.name + " " + album.albumType + " " + album.releaseDate)
-            }
-
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-
-    }
 
     private fun searchArtist(vararg artistNames: String) {
         for (artistName in artistNames) {
@@ -89,24 +58,56 @@ object SpotifyApiDoodle {
                 var i = 0
                 for (artist in artists) {
                     println(artist.name + "  genres=" + artist.genres)
-                    searchAlbums(artist)
+                    val albums = searchAlbums(artist)
+                    for (album in albums) {
+                        println("  " + album.name + " " + album.albumType + " " + album.releaseDate)
+                        findTracks(album)
+                    }
                     i++
                     if (i > 0) break
                 }
-
-
             } catch (e: Exception) {
                 e.printStackTrace()
             }
-
         }
+    }
+
+    private fun searchAlbums(artist: Artist) : List<Album> {
+        val request = api.getAlbumsForArtist(artist.id).limit(20).build()
+        val retAlbums = ArrayList<Album>()
+        try {
+            val albumSearchResult = request.get()
+            val ids = ArrayList<String>()
+            val albums = albumSearchResult.items
+            //println("Found ${albums.size} albums.")
+
+            // Albums are of class SimpleAlbum.  Store all ids
+            for (album in albums) {
+                //println(album.name + " " + album.albumType)
+                ids.add(album.id)
+            }
+            println("ids = " + ids)
+
+            // Get all the albums.  Album class contains more information
+            val albumRequest = api.getAlbums(ids).build()
+
+            retAlbums.addAll(albumRequest.get().sortedWith( compareBy({it.releaseDate})))
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return retAlbums
+    }
+
+    private fun findTracks(album: Album) {
+        for (track in album.tracks.items)
+            println("    ${track.trackNumber} ${track.name}")
     }
 
     @JvmStatic fun main(args: Array<String>) {
         //		synchronous();
         searchArtist(
-                "Jethro Tull",
-                "Genesis",
+              //  "Jethro Tull",
+              //  "Genesis",
                 "Big Big Train")
         //		searchAlbums();
     }
