@@ -2,6 +2,7 @@ package org.veggeberg.spotify;
 
 import java.util.List;
 
+import com.tinkerpop.frames.Adjacency;
 import com.tinkerpop.frames.Property;
 
 interface SpotifyArtist {
@@ -25,6 +26,11 @@ interface SpotifyArtist {
 	String getArtistId();
 	@Property("artistId")
 	void setArtistId(String id);
+	
+	@Adjacency(label="albums")
+	public Iterable<SpotifyAlbum> getAlbums();
+	@Adjacency(label="albums")
+	public void addAlbum(final SpotifyAlbum album);
 
 //	List<Image> getImages();
 //	void setImages(List<Image> images);

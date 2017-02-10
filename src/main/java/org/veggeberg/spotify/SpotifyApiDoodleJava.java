@@ -4,23 +4,31 @@ import org.mapdb.DB;
 import org.mapdb.DBMaker;
 
 import com.tinkerpop.blueprints.Direction;
+import com.tinkerpop.blueprints.Edge;
 import com.tinkerpop.blueprints.Vertex;
 import com.tinkerpop.blueprints.impls.orient.OrientGraph;
 import com.tinkerpop.frames.FramedGraph;
 import com.tinkerpop.frames.FramedGraphFactory;
+import com.tinkerpop.frames.Property;
 import com.tinkerpop.frames.modules.gremlingroovy.GremlinGroovyModule;
 import com.wrapper.spotify.Api;
+import com.wrapper.spotify.exceptions.WebApiException;
 import com.wrapper.spotify.methods.AlbumRequest;
 import com.wrapper.spotify.methods.AlbumsForArtistRequest;
 import com.wrapper.spotify.methods.AlbumsRequest;
 import com.wrapper.spotify.methods.ArtistSearchRequest;
+import com.wrapper.spotify.methods.TracksRequest;
 import com.wrapper.spotify.models.*;
 
 import java.io.File;
+import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import org.veggeberg.jmtools.domain.TopProgAlbum;
@@ -70,73 +78,100 @@ public class SpotifyApiDoodleJava {
 	// }
 	// }
 
-	private static Album searchAlbums(Artist artist, String albumName) {
-		Album ret = null;
-		final AlbumsForArtistRequest request = api
-				.getAlbumsForArtist(artist.getId()).limit(20).build();
+	private static boolean fuzzyAlbumEquals(String searchForAlbum,
+			String albumName) {
+		if (searchForAlbum.equals(albumName))
+			return true;
+		String sfa = searchForAlbum.toLowerCase();
+		String an = albumName.toLowerCase();
+		if (sfa.equals(an))
+			return true;
+		an = an.replaceFirst("\\(remastered\\)", "").trim();
+		if (sfa.equals(an))
+			return true;
+		return false;
+	}
 
-		try {
-			final Page<SimpleAlbum> albumSearchResult = request.get();
-
-			List<String> ids = new ArrayList<String>();
-			List<SimpleAlbum> albums = albumSearchResult.getItems();
-			System.out.println("Found " + albums.size() + " albums.");
-			for (SimpleAlbum album : albums) {
-				// String year = album.get
-				// System.out.println(album.getName() + " " +
-				// album.getAlbumType());
-				ids.add(album.getId());
-				// findTracks(album);
-			}
-			System.out.println("ids = " + ids);
-			final AlbumsRequest albumRequest = api.getAlbums(ids).build();
-			for (Album album : albumRequest.get()) {
-				System.out.println("  " + album.getName() + " "
-						+ album.getAlbumType() + " " + album.getReleaseDate()
-						+ " " + album.getGenres());
-				/*
-				 * Page<SimpleTrack> tracks = album.getTracks(); for
-				 * (SimpleTrack track: tracks.getItems()) {
-				 * System.out.println("    " + track.getTrackNumber() + " " +
-				 * track.getName() + " " + track.getDuration()); }
-				 */
-				if (ret == null && album.getName().equals(albumName)) {
-					ret = album;
-				}
-			}
-
-		} catch (Exception e) {
-			e.printStackTrace();
+	private static List<Track> getTracksForAlbum(Album album)
+			throws IOException, WebApiException {
+		List<Track> ret = new ArrayList<Track>();
+		Page<SimpleTrack> tracks = album.getTracks();
+		List<String> ids = new ArrayList<String>();
+		for (SimpleTrack track : tracks.getItems()) {
+			ids.add(track.getId());
+		}
+		final TracksRequest tracksRequest = api.getTracks(ids).build();
+		for (Track track : tracksRequest.get()) {
+			System.out.println("     " + track.getName() + " " + track.getId()
+					+ " " + track.getDuration() + " " + album.getPopularity()
+					+ " " + album.getGenres());
+			ret.add(track);
 		}
 		return ret;
 	}
 
-	private static Artist searchArtist(String artistName, String albumName) {
+	private static String genAlbumKey(Album album) {
+		return album.getName() + album.getReleaseDate() + album.getAlbumType();
+	}
+
+	private static Collection<Album> getAlbumsForArtist(Artist artist)
+			throws IOException, WebApiException {
+		Map<String, Album> ret = new LinkedHashMap<String, Album>();
+		final int lim = 20;
+		for (int ioff = 0; ioff < 100; ioff += lim) {
+			final AlbumsForArtistRequest request = api
+					.getAlbumsForArtist(artist.getId()).limit(lim).offset(ioff)
+					.build();
+			System.out.println("request = " + request);
+			final Page<SimpleAlbum> albumSearchResult = request.get();
+			List<String> ids = new ArrayList<String>();
+			List<SimpleAlbum> albums = albumSearchResult.getItems();
+			System.out.println("Found " + albums.size() + " albums.");
+			if (albums.size() <= 0)
+				break;
+			for (SimpleAlbum album : albums) {
+				ids.add(album.getId());
+			}
+			System.out.println("ids = " + ids);
+			final AlbumsRequest albumRequest = api.getAlbums(ids).build();
+			for (Album album : albumRequest.get()) {
+				String key = genAlbumKey(album);
+				if (!ret.containsKey(key)) {
+					ret.put(key, album);
+				}
+			}
+		}
+		return ret.values();
+	}
+
+	private static void printAlbum(Album album) {
+		System.out.println("  " + album.getName() + " " + album.getId() + " "
+				+ album.getAlbumType() + " " + album.getReleaseDate() + " "
+				+ album.getGenres());
+	}
+
+	private static Artist searchArtist(String artistName) throws IOException,
+			WebApiException {
 		Artist ret = null;
 		final ArtistSearchRequest request = api.searchArtists(artistName)
 		// .market("NO")
 				.limit(10).build();
 
-		try {
-			final Page<Artist> artistSearchResult = request.get();
-			final List<Artist> artists = artistSearchResult.getItems();
+		final Page<Artist> artistSearchResult = request.get();
+		final List<Artist> artists = artistSearchResult.getItems();
 
-			System.out.println("I've found " + artistSearchResult.getTotal()
-					+ " artists!");
+		System.out.println("I've found " + artistSearchResult.getTotal()
+				+ " artists!");
 
-			for (Artist artist : artists) {
-				System.out.println(artist.getName() + "  genres="
-						+ artist.getGenres());
-				if (artistName.equals(artist.getName())) {
-					Album album = searchAlbums(artist, albumName);
-					ret = artist;
-					break;
-				} 
+		for (Artist artist : artists) {
+			System.out.println(artist.getName() + "  genres="
+					+ artist.getGenres());
+			if (artistName.equals(artist.getName())) {
+				ret = artist;
+				break;
 			}
-
-		} catch (Exception e) {
-			e.printStackTrace();
 		}
+
 		return ret;
 	}
 
@@ -177,34 +212,61 @@ public class SpotifyApiDoodleJava {
 	private static OrientGraph graph;
 
 	private static void dumpGraph() {
+		int nv = 0;
 		for (Vertex vertex : graph.getVertices()) {
 			System.out.println(vertex);
-			for (Vertex v : vertex.getVertices(Direction.BOTH, "lives")) {
-				System.out.println("  " + v);
-			}
 			for (String key : vertex.getPropertyKeys()) {
 				System.out.println("    " + key + " = "
 						+ vertex.getProperty(key));
 			}
+			nv++;
+			// dumpVertex(vertex, 0);
+		}
+		int ne = 0;
+		for (Edge edge : graph.getEdges()) {
+			System.out.println("edge = " + edge);
+			ne++;
+		}
+		System.out.println("DB has " + nv + " Vertices and " + ne + " edges.");
+	}
+
+	static final String SPACES = "                                                  ";
+
+	private static void dumpVertex(Vertex vertex, int indent) {
+		String strIndent = SPACES.substring(0, indent);
+		System.out.println(strIndent + vertex);
+		for (String key : vertex.getPropertyKeys()) {
+			System.out.println(strIndent + "  > " + key + " = "
+					+ vertex.getProperty(key));
+		}
+		for (Edge edge : vertex.getEdges(Direction.OUT)) {
+			System.out.println(strIndent + "  " + edge);
+			Vertex v = edge.getVertex(Direction.IN);
+			dumpVertex(v, indent + 2);
 		}
 	}
 
-	private static Artist findArtist(String artist) {
-		Artist ret = null;
-		for (Vertex vertex : graph.getVertices()) {
-			if (artist.equals(vertex.getProperty("name"))) {
-				ret = new Artist();
-				ret.setName(vertex.getProperty("name").toString());
+	private static SpotifyArtist findArtist(String artistName) {
+		SpotifyArtist ret = null;
+		for (Vertex vertex : graph.getVerticesOfClass("SpotifyArtist")) {
+			SpotifyArtist sa = framedGraph.frame(vertex, SpotifyArtist.class);
+			// System.out.println(sa.getName());
+			if (artistName.equals(sa.getName())) {
+				ret = sa;
 				break;
 			}
 		}
-		System.out.println("ret = " + ret);
+		;
+		// System.out.println("ret = " + ret);
 		return ret;
 	}
 
-	private static void upsertArtist(Artist artist) {
-		SpotifyArtist sa = framedGraph.frame(
-				graph.addVertex("class:SpotifyArtist"), SpotifyArtist.class);
+	private static SpotifyArtist upsertArtist(Artist artist) {
+		SpotifyArtist sa = findArtist(artist.getName());
+		if (sa == null) {
+			sa = framedGraph.frame(graph.addVertex("class:SpotifyArtist"),
+					SpotifyArtist.class);
+		}
 		// v.setProperty("externalUrls",
 		// artist.getExternalUrls().getExternalUrls());
 		sa.setGenres(artist.getGenres());
@@ -216,25 +278,89 @@ public class SpotifyApiDoodleJava {
 		sa.setPopularity(artist.getPopularity());
 		// sa.setProperty("type", artist.getType().toString());
 		sa.setUri(artist.getUri());
+		return sa;
+	}
+
+	private static SpotifyAlbum upsertAlbum(Album album) {
+		SpotifyAlbum sa = framedGraph.frame(
+				graph.addVertex("class:SpotifyAlbum"), SpotifyAlbum.class);
+		sa.setAlbumType(album.getAlbumType().toString());
+		sa.setAvailableMarkets(album.getAvailableMarkets());
+		// sa.setCopyrights(album.getCopyrights());
+		// void setExternalIds(ExternalIds externalIds);
+		// void setExternalUrls(ExternalUrls externalUrls);
+		sa.setGenres(album.getGenres());
+		sa.setHref(album.getHref());
+		sa.setAlbumId(album.getId());
+		// sa.setImages(List<Image> images);
+		sa.setName(album.getName());
+		sa.setPopularity(album.getPopularity());
+		// void setTracks(Page<SimpleTrack> tracks);
+		// void setType(SpotifyEntityType type);
+		sa.setUri(album.getUri());
+		sa.setReleaseDatePrecision(album.getReleaseDatePrecision());
+		sa.setReleaseDate(album.getReleaseDate());
+		return sa;
+	}
+
+	private static SpotifyTrack upsertTrack(Track track) {
+		SpotifyTrack st = framedGraph.frame(
+				graph.addVertex("class:SpotifyTrack"), SpotifyTrack.class);
+		st.setAvailableMarkets(track.getAvailableMarkets());
+		// void setExternalIds(ExternalIds externalIds);
+		// void setExternalUrls(ExternalUrls externalUrls);
+		st.setHref(track.getHref());
+		st.setDiscNumber(track.getDiscNumber());
+		st.setTrackNumber(track.getTrackNumber());
+		st.setDuration(track.getDuration());
+		st.setExplicit(track.isExplicit());
+		st.setTrackId(track.getId());
+		st.setName(track.getName());
+		st.setPopularity(track.getPopularity());
+		st.setUri(track.getUri());
+		st.setPreviewUrl(track.getPreviewUrl());
+		return st;
 	}
 
 	public static void main(String[] args) {
 		// synchronous();
-		init();
-		graph = new OrientGraph("memory:testdb");
-		framedGraph = factory.create(graph); // Frame the graph.
-		// TopRymReader reader = new TopRymReader();
-		// List<TopProgAlbum> albums = reader.getAlbums();
-		List<TopProgAlbum> albums = getRymAlbums();
-		for (TopProgAlbum album : albums.subList(0, 1)) {
-			System.out.println(album.getArtist());
-			Artist artist = searchArtist(album.getArtist(), album.getTitle());
-			upsertArtist(artist);
-			findArtist(album.getArtist());
-			upsertArtist(artist);
+		try {
+			init();
+			graph = new OrientGraph("memory:testdb");
+			framedGraph = factory.create(graph); // Frame the graph.
+			graph.createVertexType("SpotifyArtist");
+			// TopRymReader reader = new TopRymReader();
+			// List<TopProgAlbum> albums = reader.getAlbums();
+			List<TopProgAlbum> albums = getRymAlbums();
+			try {
+				for (TopProgAlbum topAlbum : albums.subList(0, 6)) {
+					System.out.println(topAlbum.getArtist());
+					Artist artist = searchArtist(topAlbum.getArtist());
+					SpotifyArtist spotifyArtist = upsertArtist(artist);
+					Collection<Album> spAlbums = getAlbumsForArtist(artist);
+					System.out.println("Found " + spAlbums.size()
+							+ " unique albums in Spotify");
+					for (Album album : spAlbums) {
+						printAlbum(album);
+						SpotifyAlbum spotifyAlbum = upsertAlbum(album);
+						spotifyArtist.addAlbum(spotifyAlbum);
+						List<Track> spTracks = getTracksForAlbum(album);
+						for (Track spTrack : spTracks) {
+							SpotifyTrack st = upsertTrack(spTrack);
+							spotifyAlbum.addTracks(st);
+						}
+					}
+					graph.commit();
+				}
+			} catch (Exception e) {
+				e.printStackTrace();
+			}
+			// dumpGraph();
+
+			graph.shutdown();
+		} catch (Exception e) {
+			e.printStackTrace();
 		}
-		dumpGraph();
-		graph.shutdown();
 	}
 
 }
